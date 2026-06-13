@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikasi Update Data Excel</title>
+    <!-- Tailwind CSS untuk Styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS untuk membaca file .xlsx -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- PapaParse untuk membaca dan menulis CSV -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        .drag-active {
+            border-color: #3b82f6 !important;
+            background-color: #eff6ff !important;
+        }
+        /* Custom Scrollbar untuk tabel */
+        .table-scroll::-webkit-scrollbar {
+            height: 8px;
+            width: 8px;
+        }
+        .table-scroll::-webkit-scrollbar-track {
+            background: #f1f5f9; 
+            border-radius: 4px;
+        }
+        .table-scroll::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 4px;
+        }
+        .table-scroll::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans text-slate-800">
+
+    <!-- Lebar dibuat 100% (w-full) agar tabel tidak sempit -->
+    <div class="w-full px-4 md:px-8 py-8 mx-auto">
+        <!-- Header -->
+        <div class="mb-8 text-center">
+            <h1 class="text-3xl font-bold text-slate-900 mb-2">Sinkronisasi Data Excel & Google Sheets</h1>
+            <p class="text-slate-600">Drag & Drop file .xlsx Anda untuk memperbarui data berdasarkan nama kolom yang sama.</p>
+        </div>
+
+        <!-- Info Box -->
+        <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-8 flex items-start gap-4">
+            <i data-lucide="info" class="text-blue-500 w-6 h-6 flex-shrink-0 mt-0.5"></i>
+            <div>
+                <h3 class="font-semibold text-blue-900">Informasi Penting</h3>
+                <p class="text-sm text-blue-800 mt-1">
+                    Sistem ini akan mencocokkan data Anda otomatis dan mengirimkannya ke Google Sheets (Stock List). Pastikan file Excel yang Anda unggah memiliki nama kolom yang sesuai.
+                </p>
+            </div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            
+            <!-- Left Column: Uploader & Status -->
+            <div class="md:col-span-1 space-y-6">
+                <!-- Status Google Sheet -->
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                    <div class="flex items-center justify-between mb-2">
+                        <h2 class="font-semibold text-slate-800">Status Google Sheets</h2>
+                        <span id="sheet-status" class="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs font-semibold rounded-full flex items-center gap-1">
+                            <i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i> Memuat...
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-500 truncate" title="https://docs.google.com/spreadsheets/d/1mrD9sQK_Sffa1X1fzlCDmaJXs1Yj2q-XTNdi2sRGPos/export?format=csv&gid=1564332470">
+                        Link terhubung (Stock List)
+                    </p>
+                    <div id="sheet-summary" class="mt-3 text-sm text-slate-600 hidden">
+                        <!-- Filled by JS -->
+                    </div>
+                </div>
+
+                <!-- Dropzone -->
+                <div id="dropzone" class="bg-white border-2 border-dashed border-slate-300 rounded-xl p-8 text-center transition-all duration-200 cursor-pointer hover:border-blue-400 hover:bg-blue-50">
+                    <input type="file" id="fileInput" accept=".xlsx, .xls" class="hidden">
+                    <div class="flex justify-center mb-4">
+                        <div class="p-3 bg-blue-100 text-blue-600 rounded-full">
+                            <i data-lucide="upload-cloud" class="w-8 h-8"></i>
+                        </div>
+                    </div>
+                    <h3 class="font-semibold text-slate-800 mb-1">Upload file .xlsx</h3>
+                    <p class="text-xs text-slate-500">Drag & Drop file Anda di sini atau klik untuk memilih</p>
+                </div>
+            </div>
+
+            <!-- Right Column: Data Preview -->
+            <div class="md:col-span-2 min-w-0">
+                <!-- Kunci tinggi kontainer tabel agar scrollbar muncul -->
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[75vh] min-h-[500px]">
+                    <!-- Header -->
+                    <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50 rounded-t-xl">
+                        <h2 class="font-semibold text-slate-800 flex items-center gap-2">
+                            <i data-lucide="table" class="w-5 h-5 text-slate-500"></i>
+                            Pratinjau Data
+                        </h2>
+                        <button id="btn-download" class="hidden px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 shadow-sm">
+                            <i data-lucide="download" class="w-4 h-4"></i> Unduh Hasil CSV
+                        </button>
+                    </div>
+
+                    <!-- Tabs -->
+                    <div class="flex border-b border-slate-200 px-5 pt-3 gap-6 text-sm" id="tabs">
+                        <button class="pb-2 border-b-2 border-blue-600 text-blue-700 font-medium tab-btn" data-target="original">Data Google Sheets</button>
+                        <button class="pb-2 border-b-2 border-transparent text-slate-500 hover:text-slate-700 font-medium tab-btn hidden" id="tab-excel" data-target="excel">Data Excel (Upload)</button>
+                        <button class="pb-2 border-b-2 border-transparent text-slate-500 hover:text-slate-700 font-medium tab-btn hidden" id="tab-updated" data-target="updated">Data Diperbarui</button>
+                    </div>
+
+                    <!-- Table Container -->
+                    <div class="p-0 overflow-auto table-scroll flex-1 relative bg-white rounded-b-xl">
+                        <div id="loading-table" class="absolute inset-0 flex items-center justify-center bg-white/80 z-20">
+                            <div class="text-center">
+                                <i data-lucide="loader-2" class="w-8 h-8 animate-spin text-blue-500 mx-auto mb-2"></i>
+                                <p class="text-sm text-slate-500">Memuat data tabel...</p>
+                            </div>
+                        </div>
+
+                        <!-- Original Table -->
+                        <table id="table-original" class="w-full text-left border-collapse text-sm whitespace-nowrap">
+                            <thead class="bg-slate-50 sticky top-0 z-10 shadow-sm" id="thead-original">
+                            </thead>
+                            <tbody id="tbody-original" class="bg-white">
+                            </tbody>
+                        </table>
+
+                        <!-- Excel Table -->
+                        <table id="table-excel" class="w-full text-left border-collapse text-sm whitespace-nowrap hidden">
+                            <thead class="bg-slate-50 sticky top-0 z-10 shadow-sm" id="thead-excel">
+                            </thead>
+                            <tbody id="tbody-excel" class="bg-white">
+                            </tbody>
+                        </table>
+
+                        <!-- Updated Table -->
+                        <table id="table-updated" class="w-full text-left border-collapse text-sm whitespace-nowrap hidden">
+                            <thead class="bg-slate-50 sticky top-0 z-10 shadow-sm" id="thead-updated">
+                            </thead>
+                            <tbody id="tbody-updated" class="bg-white">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        // Initialize Icons
+        lucide.createIcons();
+
+        // Constants
+        const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1mrD9sQK_Sffa1X1fzlCDmaJXs1Yj2q-XTNdi2sRGPos/export?format=csv&gid=1564332470";
+        const APP_SCRIPT_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzjL3S52A2eg0WeziSfj9j4oB15guwFXfZccFLZ_rzttLeePr8-EiFX2hcP_l_3C22V/exec"; 
+        
+        // State
+        let targetData = [];
+        let targetHeaders = [];
+        let updatedData = [];
+
+        // DOM Elements
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+        const sheetStatus = document.getElementById('sheet-status');
+        const sheetSummary = document.getElementById('sheet-summary');
+        const loadingTable = document.getElementById('loading-table');
+        const btnDownload = document.getElementById('btn-download');
+        const tabUpdated = document.getElementById('tab-updated');
+        const tabExcel = document.getElementById('tab-excel');
+
+        // Fetch Google Sheet Data on Load
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchSheetData();
+        });
+
+        function fetchSheetData() {
+            Papa.parse(SHEET_CSV_URL, {
+                download: true,
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    targetData = results.data;
+                    targetHeaders = results.meta.fields;
+                    
+                    // Update UI Status
+                    sheetStatus.innerHTML = '<i data-lucide="check-circle-2" class="w-3 h-3"></i> Terhubung';
+                    sheetStatus.className = 'px-2 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full flex items-center gap-1';
+                    sheetSummary.innerHTML = `Ditemukan <b>${targetData.length}</b> baris dan <b>${targetHeaders.length}</b> kolom.`;
+                    sheetSummary.classList.remove('hidden');
+                    lucide.createIcons();
+
+                    // Render Original Table
+                    renderTable(targetData, targetHeaders, 'original');
+                    loadingTable.classList.add('hidden');
+                },
+                error: function(err) {
+                    sheetStatus.innerHTML = '<i data-lucide="x-circle" class="w-3 h-3"></i> Gagal Memuat';
+                    sheetStatus.className = 'px-2 py-1 bg-red-100 text-red-700 text-xs font-semibold rounded-full flex items-center gap-1';
+                    loadingTable.innerHTML = `<div class="text-center text-red-500"><p>Gagal memuat data dari Google Sheets.</p><p class="text-xs mt-1">${err.message}</p></div>`;
+                    lucide.createIcons();
+                }
+            });
+        }
+
+        // Drag & Drop Handling
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('drag-active');
+        });
+
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.classList.remove('drag-active');
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('drag-active');
+            
+            if (e.dataTransfer.files.length > 0) {
+                const file = e.dataTransfer.files[0];
+                processExcelFile(file);
+            }
+        });
+
+        // Click to upload
+        dropzone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                processExcelFile(e.target.files[0]);
+            }
+        });
+
+        // Parse Excel File
+        function processExcelFile(file) {
+            if (!file.name.match(/\.(xlsx|xls)$/)) {
+                alert("Mohon upload file dengan format Excel (.xlsx atau .xls)");
+                return;
+            }
+
+            loadingTable.classList.remove('hidden');
+            loadingTable.innerHTML = `<div class="text-center"><i data-lucide="loader-2" class="w-8 h-8 animate-spin text-blue-500 mx-auto mb-2"></i><p class="text-sm text-slate-500">Memproses Excel...</p></div>`;
+            lucide.createIcons();
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                
+                // Get first sheet
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                
+                // Convert to JSON
+                const sourceData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+                
+                if (sourceData.length === 0) {
+                    alert("File Excel kosong.");
+                    loadingTable.classList.add('hidden');
+                    return;
+                }
+
+                // Render tab Data Excel (Upload)
+                const sourceHeaders = Object.keys(sourceData[0] || {});
+                renderTable(sourceData, sourceHeaders, 'excel');
+                tabExcel.classList.remove('hidden');
+
+                mergeData(sourceData);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // The Core Merge Logic
+        function mergeData(sourceData) {
+            if (targetData.length === 0) {
+                alert("Data Google Sheets belum siap.");
+                loadingTable.classList.add('hidden');
+                return;
+            }
+
+            const sourceHeaders = Object.keys(sourceData[0] || {});
+            
+            // 1. Find matching columns
+            const matchingCols = targetHeaders.filter(col => sourceHeaders.includes(col));
+
+            if (matchingCols.length === 0) {
+                alert("Tidak ada nama kolom yang sama antara file Excel dan Google Sheets.\n\nPastikan nama kolom (huruf besar/kecil) sama persis.");
+                loadingTable.classList.add('hidden');
+                return;
+            }
+
+            // 2. Determine Primary Key (prioritize 'code', 'kode', 'id')
+            const possibleKeys = ['code', 'kode', 'id', 'no', 'nomor'];
+            let primaryKey = null;
+            
+            // Mencari key dengan mengabaikan besar/kecil huruf
+            for (let pk of possibleKeys) {
+                const found = matchingCols.find(c => c.toLowerCase() === pk);
+                if (found) {
+                    primaryKey = found;
+                    break;
+                }
+            }
+
+            // Fallback: Jika tidak ada 'code', gunakan kolom yang sama pertama sebagai identifier
+            if (!primaryKey) {
+                primaryKey = matchingCols[0]; 
+            }
+
+            // 3. Process Update
+            updatedData = JSON.parse(JSON.stringify(targetData)); // Clone data
+            let rowsUpdated = 0;
+            let rowsAdded = 0;
+
+            sourceData.forEach(sourceRow => {
+                const keyValue = sourceRow[primaryKey];
+                if (keyValue === undefined || keyValue === null || keyValue === '') return;
+
+                // Cari baris di Google Sheets yang nilai kodenya sama
+                const targetRowIndex = updatedData.findIndex(row => row[primaryKey] == keyValue);
+
+                if (targetRowIndex !== -1) {
+                    // Update baris jika ada perbedaan
+                    let isChanged = false;
+                    matchingCols.forEach(col => {
+                        // Jangan update kolom primary key itu sendiri, dan pastikan nilai baru ada
+                        if (col !== primaryKey && sourceRow[col] !== undefined && sourceRow[col] !== null) {
+                            if (updatedData[targetRowIndex][col] != sourceRow[col]) {
+                                updatedData[targetRowIndex][col] = sourceRow[col];
+                                updatedData[targetRowIndex]['_isUpdated'] = true; // flag untuk UI highlight
+                                isChanged = true;
+                            }
+                        }
+                    });
+                    if (isChanged) rowsUpdated++;
+                } else {
+                    // Jika data tidak ada di Sheets, tambahkan baris baru
+                    const newRow = {};
+                    targetHeaders.forEach(th => newRow[th] = ""); // Init kosong
+                    matchingCols.forEach(col => {
+                        if (sourceRow[col] !== undefined) newRow[col] = sourceRow[col];
+                    });
+                    newRow['_isNew'] = true; // flag untuk UI highlight
+                    updatedData.push(newRow);
+                    rowsAdded++;
+                }
+            });
+
+            // 4. Update UI
+            loadingTable.classList.add('hidden');
+            renderTable(updatedData, targetHeaders, 'updated');
+            
+            // Show new tab and switch to it
+            tabUpdated.classList.remove('hidden');
+            btnDownload.classList.remove('hidden');
+            switchTab('updated');
+
+            // Jalankan update ke cloud secara otomatis
+            if(APP_SCRIPT_WEB_APP_URL !== "MASUKKAN_URL_WEB_APP_DISINI" && APP_SCRIPT_WEB_APP_URL !== "") {
+                autoUpdateToGoogleSheets(sourceData);
+            } else {
+                alert(`Pratinjau Selesai!\nKolom Key: "${primaryKey}"\n\nUntuk update OTOMATIS ke Google Sheets, Anda belum memasukkan URL Web App di dalam kode HTML.`);
+            }
+        }
+
+        // FUNGSI BARU: AUTO UPDATE KE GOOGLE SHEETS
+        async function autoUpdateToGoogleSheets(sourceData) {
+            sheetStatus.innerHTML = '<i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i> Menyimpan ke Sheets...';
+            sheetStatus.className = 'px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full flex items-center gap-1';
+            lucide.createIcons();
+
+            try {
+                // Fetch data to Google Apps Script
+                const response = await fetch(APP_SCRIPT_WEB_APP_URL, {
+                    method: 'POST',
+                    // Menggunakan text/plain menghindari masalah CORS preflight request di Apps Script
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ data: sourceData })
+                });
+
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    sheetStatus.innerHTML = '<i data-lucide="check-circle-2" class="w-3 h-3"></i> Berhasil Disimpan';
+                    sheetStatus.className = 'px-2 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full flex items-center gap-1';
+                    alert(`SUKSES TERSIMPAN DI GOOGLE SHEETS!\n\n${result.message}`);
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (error) {
+                sheetStatus.innerHTML = '<i data-lucide="x-circle" class="w-3 h-3"></i> Gagal Menyimpan';
+                sheetStatus.className = 'px-2 py-1 bg-red-100 text-red-700 text-xs font-semibold rounded-full flex items-center gap-1';
+                alert("GAGAL MENYIMPAN KE GOOGLE SHEETS.\n\nError: " + error.message);
+            }
+            lucide.createIcons();
+        }
+
+        // Render Table Function
+        function renderTable(data, headers, type) {
+            const thead = document.getElementById(`thead-${type}`);
+            const tbody = document.getElementById(`tbody-${type}`);
+
+            // Render Headers
+            let headHTML = '<tr>';
+            headHTML += `<th class="px-4 py-3 text-slate-500 font-medium bg-slate-100 border border-slate-200 w-10 text-center sticky left-0 z-20 shadow-[1px_0_0_0_#e2e8f0]">#</th>`;
+            headers.forEach(h => {
+                const displayHeader = h ? h : '(Tanpa Nama)';
+                headHTML += `<th class="px-4 py-3 text-slate-700 font-semibold bg-slate-100 border border-slate-200">${displayHeader}</th>`;
+            });
+            headHTML += '</tr>';
+            thead.innerHTML = headHTML;
+
+            // Render Body
+            let bodyHTML = '';
+            data.forEach((row, index) => {
+                let trClass = "hover:bg-slate-50 transition-colors";
+                
+                // Highlight Styling
+                if (row._isUpdated) trClass = "bg-green-50 hover:bg-green-100";
+                if (row._isNew) trClass = "bg-blue-50 hover:bg-blue-100";
+
+                bodyHTML += `<tr class="${trClass}">`;
+                
+                // Styling sticky kolom nomor (warna menyesuaikan baris)
+                let numCellBg = row._isUpdated ? 'bg-green-50' : (row._isNew ? 'bg-blue-50' : 'bg-white');
+                bodyHTML += `<td class="px-4 py-2 text-slate-500 border border-slate-200 text-center text-xs sticky left-0 z-10 ${numCellBg} shadow-[1px_0_0_0_#e2e8f0]">${index + 1}</td>`;
+                
+                headers.forEach(h => {
+                    let cellValue = row[h] !== undefined && row[h] !== null ? row[h] : '';
+                    let cellClass = "px-4 py-2 border border-slate-200 text-slate-700";
+                    
+                    if (row._isUpdated || row._isNew) {
+                        cellClass += " font-medium text-slate-900";
+                    }
+
+                    bodyHTML += `<td class="${cellClass}">${cellValue}</td>`;
+                });
+                bodyHTML += '</tr>';
+            });
+            tbody.innerHTML = bodyHTML;
+        }
+
+        // Tab Switching Logic
+        const tabBtns = document.querySelectorAll('.tab-btn');
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const target = e.target.getAttribute('data-target');
+                switchTab(target);
+            });
+        });
+
+        function switchTab(target) {
+            tabBtns.forEach(btn => {
+                if (btn.getAttribute('data-target') === target) {
+                    btn.classList.add('border-blue-600', 'text-blue-700');
+                    btn.classList.remove('border-transparent', 'text-slate-500');
+                } else {
+                    btn.classList.remove('border-blue-600', 'text-blue-700');
+                    btn.classList.add('border-transparent', 'text-slate-500');
+                }
+            });
+
+            document.getElementById('table-original').classList.add('hidden');
+            document.getElementById('table-excel').classList.add('hidden');
+            document.getElementById('table-updated').classList.add('hidden');
+            
+            document.getElementById(`table-${target}`).classList.remove('hidden');
+        }
+
+        // Download Data to CSV
+        btnDownload.addEventListener('click', () => {
+            if (updatedData.length === 0) return;
+
+            // Bersihkan flag UI (_isUpdated, _isNew) sebelum diunduh
+            const cleanData = updatedData.map(row => {
+                const newRow = { ...row };
+                delete newRow._isUpdated;
+                delete newRow._isNew;
+                return newRow;
+            });
+
+            const csv = Papa.unparse(cleanData);
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", `Data_Terupdate_${new Date().getTime()}.csv`);
+            link.style.visibility = 'hidden';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+    </script>
+</body>
+</html>
