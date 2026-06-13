@@ -100,8 +100,8 @@
                             <i data-lucide="table" class="w-5 h-5 text-slate-500"></i>
                             Pratinjau Data
                         </h2>
-                        <button id="btn-download" class="hidden px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 shadow-sm">
-                            <i data-lucide="download" class="w-4 h-4"></i> Unduh Hasil CSV
+                        <button id="btn-update" class="hidden px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 shadow-sm">
+                            <i data-lucide="cloud-upload" class="w-4 h-4"></i> Update Data ke Sheets
                         </button>
                     </div>
 
@@ -112,8 +112,8 @@
                         <button class="pb-2 border-b-2 border-transparent text-slate-500 hover:text-slate-700 font-medium tab-btn hidden" id="tab-updated" data-target="updated">Data Diperbarui</button>
                     </div>
 
-                    <!-- Table Container -->
-                    <div class="p-0 overflow-auto table-scroll flex-1 relative bg-white rounded-b-xl">
+                    <!-- Table Container (Dihilangkan rounded-b-xl karena akan ada footer) -->
+                    <div class="p-0 overflow-auto table-scroll flex-1 relative bg-white">
                         <div id="loading-table" class="absolute inset-0 flex items-center justify-center bg-white/80 z-20">
                             <div class="text-center">
                                 <i data-lucide="loader-2" class="w-8 h-8 animate-spin text-blue-500 mx-auto mb-2"></i>
@@ -145,6 +145,25 @@
                             </tbody>
                         </table>
                     </div>
+                    
+                    <!-- Pagination Footer -->
+                    <div class="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between rounded-b-xl">
+                        <div class="text-sm text-slate-600" id="pagination-info">
+                            Menampilkan 0 data
+                        </div>
+                        <div class="flex gap-2">
+                            <button id="btn-prev" disabled class="px-3 py-1.5 bg-white border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium text-slate-600 transition-colors">
+                                <div class="flex items-center gap-1">
+                                    <i data-lucide="chevron-left" class="w-4 h-4"></i> Sebelumnya
+                                </div>
+                            </button>
+                            <button id="btn-next" disabled class="px-3 py-1.5 bg-white border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium text-slate-600 transition-colors">
+                                <div class="flex items-center gap-1">
+                                    Selanjutnya <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -163,6 +182,12 @@
         let targetData = [];
         let targetHeaders = [];
         let updatedData = [];
+        let currentSourceData = []; 
+        
+        // Pagination State
+        let activeTab = 'original';
+        let currentPage = 1;
+        const rowsPerPage = 100;
 
         // DOM Elements
         const dropzone = document.getElementById('dropzone');
@@ -170,9 +195,14 @@
         const sheetStatus = document.getElementById('sheet-status');
         const sheetSummary = document.getElementById('sheet-summary');
         const loadingTable = document.getElementById('loading-table');
-        const btnDownload = document.getElementById('btn-download');
+        const btnUpdate = document.getElementById('btn-update');
         const tabUpdated = document.getElementById('tab-updated');
         const tabExcel = document.getElementById('tab-excel');
+        
+        // Pagination DOM
+        const btnPrev = document.getElementById('btn-prev');
+        const btnNext = document.getElementById('btn-next');
+        const paginationInfo = document.getElementById('pagination-info');
 
         // Fetch Google Sheet Data on Load
         window.addEventListener('DOMContentLoaded', () => {
@@ -195,9 +225,9 @@
                     sheetSummary.classList.remove('hidden');
                     lucide.createIcons();
 
-                    // Render Original Table
-                    renderTable(targetData, targetHeaders, 'original');
+                    // Sembunyikan loading dan render tabel halaman pertama
                     loadingTable.classList.add('hidden');
+                    renderActiveTab();
                 },
                 error: function(err) {
                     sheetStatus.innerHTML = '<i data-lucide="x-circle" class="w-3 h-3"></i> Gagal Memuat';
@@ -260,7 +290,7 @@
                 const worksheet = workbook.Sheets[firstSheetName];
                 
                 // Convert to JSON
-                const sourceData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+                const sourceData = XLSX.utils.sheet_to_json(worksheet, { defval: "", raw: false });
                 
                 if (sourceData.length === 0) {
                     alert("File Excel kosong.");
@@ -268,11 +298,7 @@
                     return;
                 }
 
-                // Render tab Data Excel (Upload)
-                const sourceHeaders = Object.keys(sourceData[0] || {});
-                renderTable(sourceData, sourceHeaders, 'excel');
-                tabExcel.classList.remove('hidden');
-
+                currentSourceData = sourceData;
                 mergeData(sourceData);
             };
             reader.readAsArrayBuffer(file);
@@ -356,25 +382,26 @@
 
             // 4. Update UI
             loadingTable.classList.add('hidden');
-            renderTable(updatedData, targetHeaders, 'updated');
-            
-            // Show new tab and switch to it
+            tabExcel.classList.remove('hidden');
             tabUpdated.classList.remove('hidden');
-            btnDownload.classList.remove('hidden');
+            btnUpdate.classList.remove('hidden');
+            
+            // Pindah ke tab updated, yg otomatis memanggil renderActiveTab()
             switchTab('updated');
 
-            // Jalankan update ke cloud secara otomatis
-            if(APP_SCRIPT_WEB_APP_URL !== "MASUKKAN_URL_WEB_APP_DISINI" && APP_SCRIPT_WEB_APP_URL !== "") {
-                autoUpdateToGoogleSheets(sourceData);
-            } else {
-                alert(`Pratinjau Selesai!\nKolom Key: "${primaryKey}"\n\nUntuk update OTOMATIS ke Google Sheets, Anda belum memasukkan URL Web App di dalam kode HTML.`);
-            }
+            alert(`Pratinjau Selesai!\nKolom Key: "${primaryKey}"\n\nSilakan periksa Pratinjau Data. Jika sudah sesuai, klik tombol "Update Data ke Sheets" di kanan atas untuk menyimpan perubahan.`);
         }
 
         // FUNGSI BARU: AUTO UPDATE KE GOOGLE SHEETS
         async function autoUpdateToGoogleSheets(sourceData) {
             sheetStatus.innerHTML = '<i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i> Menyimpan ke Sheets...';
             sheetStatus.className = 'px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full flex items-center gap-1';
+            
+            // Ubah tampilan tombol saat proses simpan
+            const originalBtnHtml = btnUpdate.innerHTML;
+            btnUpdate.disabled = true;
+            btnUpdate.classList.add('opacity-70', 'cursor-not-allowed');
+            btnUpdate.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Menyimpan...';
             lucide.createIcons();
 
             try {
@@ -391,6 +418,12 @@
                 if (result.status === 'success') {
                     sheetStatus.innerHTML = '<i data-lucide="check-circle-2" class="w-3 h-3"></i> Berhasil Disimpan';
                     sheetStatus.className = 'px-2 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full flex items-center gap-1';
+                    
+                    // Ubah tombol jadi berhasil
+                    btnUpdate.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> Berhasil Diupdate';
+                    btnUpdate.classList.replace('bg-blue-600', 'bg-green-600');
+                    btnUpdate.classList.replace('hover:bg-blue-700', 'hover:bg-green-700');
+                    
                     alert(`SUKSES TERSIMPAN DI GOOGLE SHEETS!\n\n${result.message}`);
                 } else {
                     throw new Error(result.message);
@@ -398,13 +431,80 @@
             } catch (error) {
                 sheetStatus.innerHTML = '<i data-lucide="x-circle" class="w-3 h-3"></i> Gagal Menyimpan';
                 sheetStatus.className = 'px-2 py-1 bg-red-100 text-red-700 text-xs font-semibold rounded-full flex items-center gap-1';
+                
+                // Kembalikan tombol seperti semula jika gagal
+                btnUpdate.disabled = false;
+                btnUpdate.classList.remove('opacity-70', 'cursor-not-allowed');
+                btnUpdate.innerHTML = originalBtnHtml;
+                
                 alert("GAGAL MENYIMPAN KE GOOGLE SHEETS.\n\nError: " + error.message);
             }
             lucide.createIcons();
         }
 
-        // Render Table Function
-        function renderTable(data, headers, type) {
+        // FUNGSI PAGINASI: Mengambil data aktif sesuai tab saat ini
+        function renderActiveTab() {
+            let data = [];
+            let headers = [];
+
+            if (activeTab === 'original') {
+                data = targetData;
+                headers = targetHeaders;
+            } else if (activeTab === 'excel') {
+                data = currentSourceData;
+                headers = Object.keys(currentSourceData[0] || {});
+            } else if (activeTab === 'updated') {
+                data = updatedData;
+                headers = targetHeaders;
+            }
+
+            if (data.length === 0) {
+                document.getElementById(`tbody-${activeTab}`).innerHTML = '<tr><td colspan="100%" class="text-center py-8 text-slate-500">Tidak ada data untuk ditampilkan</td></tr>';
+                paginationInfo.innerHTML = `Menampilkan 0 data`;
+                btnPrev.disabled = true;
+                btnNext.disabled = true;
+                return;
+            }
+
+            // Hitung batasan halaman
+            const totalPages = Math.ceil(data.length / rowsPerPage);
+            if (currentPage > totalPages) currentPage = totalPages;
+            if (currentPage < 1) currentPage = 1;
+
+            const startIndex = (currentPage - 1) * rowsPerPage;
+            const endIndex = Math.min(startIndex + rowsPerPage, data.length);
+            const slicedData = data.slice(startIndex, endIndex);
+
+            // Render hanya data yg telah dipotong
+            renderTable(slicedData, headers, activeTab, startIndex);
+
+            // Update Teks Paginasi & Tombol
+            paginationInfo.innerHTML = `Menampilkan <b>${startIndex + 1} - ${endIndex}</b> dari <b>${data.length}</b> data`;
+            btnPrev.disabled = currentPage === 1;
+            btnNext.disabled = currentPage === totalPages;
+        }
+
+        // EVENT LISTENER PAGINASI
+        btnPrev.addEventListener('click', () => {
+            if (currentPage > 1) {
+                currentPage--;
+                renderActiveTab();
+            }
+        });
+
+        btnNext.addEventListener('click', () => {
+            // Ambil total data untuk cek batas akhir
+            let dataLength = activeTab === 'original' ? targetData.length : (activeTab === 'excel' ? currentSourceData.length : updatedData.length);
+            const totalPages = Math.ceil(dataLength / rowsPerPage);
+            
+            if (currentPage < totalPages) {
+                currentPage++;
+                renderActiveTab();
+            }
+        });
+
+        // Render Table Function (Dimodifikasi menerima param startIndex)
+        function renderTable(data, headers, type, startIndex = 0) {
             const thead = document.getElementById(`thead-${type}`);
             const tbody = document.getElementById(`tbody-${type}`);
 
@@ -429,9 +529,9 @@
 
                 bodyHTML += `<tr class="${trClass}">`;
                 
-                // Styling sticky kolom nomor (warna menyesuaikan baris)
+                // Styling sticky kolom nomor
                 let numCellBg = row._isUpdated ? 'bg-green-50' : (row._isNew ? 'bg-blue-50' : 'bg-white');
-                bodyHTML += `<td class="px-4 py-2 text-slate-500 border border-slate-200 text-center text-xs sticky left-0 z-10 ${numCellBg} shadow-[1px_0_0_0_#e2e8f0]">${index + 1}</td>`;
+                bodyHTML += `<td class="px-4 py-2 text-slate-500 border border-slate-200 text-center text-xs sticky left-0 z-10 ${numCellBg} shadow-[1px_0_0_0_#e2e8f0]">${startIndex + index + 1}</td>`;
                 
                 headers.forEach(h => {
                     let cellValue = row[h] !== undefined && row[h] !== null ? row[h] : '';
@@ -446,18 +546,25 @@
                 bodyHTML += '</tr>';
             });
             tbody.innerHTML = bodyHTML;
+            
+            // Re-inisialisasi ikon setelah render
+            lucide.createIcons();
         }
 
         // Tab Switching Logic
         const tabBtns = document.querySelectorAll('.tab-btn');
         tabBtns.forEach(btn => {
             btn.addEventListener('click', (e) => {
-                const target = e.target.getAttribute('data-target');
+                // Untuk penanganan klik ikon di dalam button, pastikan ambil target dari elemen button
+                const target = e.currentTarget.getAttribute('data-target');
                 switchTab(target);
             });
         });
 
         function switchTab(target) {
+            activeTab = target;
+            currentPage = 1; // Reset halaman ke 1 setiap kali ganti tab
+
             tabBtns.forEach(btn => {
                 if (btn.getAttribute('data-target') === target) {
                     btn.classList.add('border-blue-600', 'text-blue-700');
@@ -473,32 +580,20 @@
             document.getElementById('table-updated').classList.add('hidden');
             
             document.getElementById(`table-${target}`).classList.remove('hidden');
+
+            // Render data untuk tab yang sedang aktif
+            renderActiveTab();
         }
 
-        // Download Data to CSV
-        btnDownload.addEventListener('click', () => {
-            if (updatedData.length === 0) return;
+        // Event Listener untuk Update Data ke Sheets
+        btnUpdate.addEventListener('click', () => {
+            if (currentSourceData.length === 0) return;
 
-            // Bersihkan flag UI (_isUpdated, _isNew) sebelum diunduh
-            const cleanData = updatedData.map(row => {
-                const newRow = { ...row };
-                delete newRow._isUpdated;
-                delete newRow._isNew;
-                return newRow;
-            });
-
-            const csv = Papa.unparse(cleanData);
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement("a");
-            
-            const url = URL.createObjectURL(blob);
-            link.setAttribute("href", url);
-            link.setAttribute("download", `Data_Terupdate_${new Date().getTime()}.csv`);
-            link.style.visibility = 'hidden';
-            
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            if(APP_SCRIPT_WEB_APP_URL !== "MASUKKAN_URL_WEB_APP_DISINI" && APP_SCRIPT_WEB_APP_URL !== "") {
+                autoUpdateToGoogleSheets(currentSourceData);
+            } else {
+                alert("URL Web App Google Apps Script belum dimasukkan di dalam kode HTML.");
+            }
         });
 
     </script>
