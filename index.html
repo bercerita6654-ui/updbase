@@ -307,38 +307,42 @@
                 const firstSheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[firstSheetName];
                 
-                // Convert to JSON
-                const rawSourceData = XLSX.utils.sheet_to_json(worksheet, { defval: "", raw: false });
+                // --- METODE DUAL-READ (Paling Aman) ---
+                // rawData: Mengambil angka murni (20000 tetap 20000, tidak dirusak pemformatan titik/koma)
+                const rawData = XLSX.utils.sheet_to_json(worksheet, { defval: "", raw: true });
                 
-                if (rawSourceData.length === 0) {
+                // textData: Mengambil format visual di layar (untuk menyelamatkan angka "0" di awal barcode)
+                const textData = XLSX.utils.sheet_to_json(worksheet, { defval: "", raw: false });
+                
+                if (rawData.length === 0) {
                     alert("File Excel kosong.");
                     loadingTable.classList.add('hidden');
                     return;
                 }
 
-                // --- FIX ANGKA NOMINAL (Pembersihan Titik Ribuan) ---
-                const sourceData = rawSourceData.map(row => {
-                    const newRow = { ...row };
-                    for (let key in newRow) {
-                        let val = newRow[key];
-                        if (typeof val === 'string') {
-                            let trimmed = val.trim();
-                            
-                            // Pola 1: Angka ribuan dengan titik (contoh: 20.000 atau 1.500.000)
-                            if (/^-?\d{1,3}(\.\d{3})+$/.test(trimmed)) {
-                                newRow[key] = parseFloat(trimmed.replace(/\./g, ''));
+                // Penggabungan pintar
+                const sourceData = rawData.map((row, i) => {
+                    const newRow = {};
+                    for (let key in row) {
+                        let valRaw = row[key];
+                        let valText = textData[i] ? textData[i][key] : valRaw;
+                        
+                        if (typeof valRaw === 'number') {
+                            // Cek jika versi text memiliki angka '0' di depan (Berarti ini Barcode/Kode)
+                            if (typeof valText === 'string' && valText.startsWith('0')) {
+                                newRow[key] = valText;
                             } 
-                            // Pola 2: Angka ribuan dengan titik dan desimal koma (contoh: 20.000,50)
-                            else if (/^-?\d{1,3}(\.\d{3})+(,\d+)$/.test(trimmed)) {
-                                newRow[key] = parseFloat(trimmed.replace(/\./g, '').replace(',', '.'));
+                            // Cek jika angkanya lebih dari 10 digit (Misal: Barcode panjang yang tidak diawali 0)
+                            else if (valRaw >= 1000000000) {
+                                newRow[key] = valText;
+                            } 
+                            // Jika bukan barcode, berarti nominal biasa (seperti 20000), gunakan Angka Murninya!
+                            else {
+                                newRow[key] = valRaw;
                             }
-                            // Pola 3: Angka desimal koma (contoh: 15,50)
-                            else if (/^-?\d+(,\d+)$/.test(trimmed)) {
-                                // Jangan proses jika diawali nol untuk keamanan angka kode/barcode
-                                if (!/^-?0\d+/.test(trimmed)) {
-                                    newRow[key] = parseFloat(trimmed.replace(',', '.'));
-                                }
-                            }
+                        } else {
+                            // Untuk data teks biasa
+                            newRow[key] = valRaw;
                         }
                     }
                     return newRow;
