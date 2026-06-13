@@ -316,6 +316,11 @@
                 return;
             }
 
+            if (targetData.length === 0) {
+                alert("Data Google Sheets belum siap. Silakan tunggu beberapa saat.");
+                return;
+            }
+
             loadingTable.classList.remove('hidden');
             loadingTable.innerHTML = `<div class="text-center"><i data-lucide="loader-2" class="w-8 h-8 animate-spin text-blue-500 mx-auto mb-2"></i><p class="text-sm text-slate-500">Memproses Excel...</p></div>`;
             lucide.createIcons();
@@ -342,8 +347,8 @@
                     return;
                 }
 
-                // Penggabungan pintar
-                const sourceData = rawData.map((row, i) => {
+                // Penggabungan pintar (Barcode & Angka Murni)
+                const initialSourceData = rawData.map((row, i) => {
                     const newRow = {};
                     for (let key in row) {
                         let valRaw = row[key];
@@ -368,6 +373,26 @@
                         }
                     }
                     return newRow;
+                });
+
+                // --- FIX: Normalisasi Nama Kolom (Abaikan Besar/Kecil Huruf & Spasi) ---
+                const sourceData = initialSourceData.map(row => {
+                    const normalizedRow = {};
+                    for (let key in row) {
+                        // Cari apakah ada nama kolom di Google Sheets yang sama (mengabaikan case dan spasi)
+                        const matchedTargetHeader = targetHeaders.find(th => 
+                            th.toString().trim().toLowerCase() === key.toString().trim().toLowerCase()
+                        );
+                        
+                        // Jika ada yang cocok, gunakan nama persis dari Google Sheets
+                        if (matchedTargetHeader) {
+                            normalizedRow[matchedTargetHeader] = row[key];
+                        } else {
+                            // Jika tidak ada di Sheets, simpan dengan nama aslinya
+                            normalizedRow[key] = row[key];
+                        }
+                    }
+                    return normalizedRow;
                 });
 
                 currentSourceData = sourceData;
